@@ -1,0 +1,123 @@
+name: MLOps CI/CD Pipeline
+
+# Ödev Parça 1: Version Control Setup [cite: 9]
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ------------------------------------------------------------------
+  # ÖDEV PART 1: COMMIT STAGE
+  # Unit Test ve Linting işlemlerini kapsar.
+  # ------------------------------------------------------------------
+  commit_stage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 bandit pytest httpx
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # Code Analysis/Linting [cite: 14]
+      # Hata eşikleri aşılırsa build başarısız olmalı [cite: 15]
+      - name: Lint with Flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      # Automated Unit Testing [cite: 11]
+      # Hızlı ve izole testler olmalı [cite: 12]
+      - name: Run Unit Tests
+        run: pytest -q
+
+  # ------------------------------------------------------------------
+  # ÖDEV PART 2: BUILD & PACKAGE STAGE
+  # Binary sadece bir kez derlenmeli [cite: 22]
+  # ------------------------------------------------------------------
+  build_stage:
+    needs: commit_stage 
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # Otomatik tanımlıdır, senin eklemene gerek yok.
+
+      # Build Script [cite: 21]
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  # ------------------------------------------------------------------
+  # ÖDEV PART 2 & 3: SMOKE TEST (DEPLOYMENT GATE)
+  # Container ayağa kaldırılır ve istek atılır 
+  # ------------------------------------------------------------------
+  smoke_test_stage:
+    needs: build_stage
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+
+    steps:
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull Docker Image
+        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      # Smoke Test 
+      # Kritik Deployment Testi [cite: 24]
+      - name: Run Container & Smoke Test
+        run: |
+          # 1. Container'ı başlat (Deployment Simülasyonu)
+          docker run -d --name api_smoke -p 8000:8000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          
+          # 2. Servisin kalkması için bekle
+          sleep 10
+          
+          # 3. Logları göster
+          docker logs api_smoke
+          
+          # 4. Smoke Test: Basit bir curl isteği ile 200 OK kontrolü 
+          echo "Running Health Check..."
+          curl --fail http://127.0.0.1:8000/health || exit 1
+          
+          # Opsiyonel: Tahmin isteği
+          curl -X POST http://127.0.0.1:8000/predict \
+               -H "Content-Type: application/json" \
+               -d '{"Progress_Percentage":95, "Quiz_Score_Avg":80}' || exit 1
+          
+          docker rm -f api_smoke
