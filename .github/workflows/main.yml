@@ -1,6 +1,5 @@
 name: MLOps Homework Pipeline
 
-# Tetikleyici: Kodu her pushladığında çalışır (Part 1 - Version Control)
 on:
   push:
     branches: [ "main", "master" ]
@@ -9,61 +8,79 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # BURAYI KENDİ KULLANICI ADIN VE REPO ADINLA (KÜÇÜK HARFLERLE) DEĞİŞTİR
+  IMAGE_NAME: ekarau/machine-learning-operations-project
 
 jobs:
-  # --- BÖLÜM 1: COMMIT STAGE (Unit Test & Linting) ---
-  commit_stage:
+  # --- 1. BUILD STAGE ---
+  # Python projesi olduğu için "Build" aşaması ortam kurulumu demektir.
+  build_stage:
     runs-on: ubuntu-latest
     steps:
-      - name: Kodu Çek (Checkout)
+      - name: Kodu Çek
         uses: actions/checkout@v4
-
       - name: Python Kurulumu
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Kütüphaneleri Yükle
+      - name: Bağımlılıkları Kontrol Et (Build Simulation)
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 pytest httpx
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          echo "Build (Dependency Check) Successful"
 
-      # Part 1: Code Analysis (Linting)
-      # Kod stili bozuksa build BURADA DURUR (Stop the Line)
-      - name: Lint (Flake8)
+  # --- 2. UNIT TEST STAGE ---
+  unit_test_stage:
+    needs: build_stage # Build bitmeden başlamaz
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodu Çek
+        uses: actions/checkout@v4
+      - name: Python Kurulumu
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Testleri Çalıştır
         run: |
+          pip install pytest httpx pandas scikit-learn numpy joblib fastapi pydantic
+          # Sadece mantıksal birim testlerini çalıştırıyoruz
+          pytest tests/test_transformers.py tests/test_feature_engineering.py tests/test_validation.py tests/test_app.py
+
+  # --- 3. LINT STAGE ---
+  lint_stage:
+    needs: unit_test_stage # Test geçmeden Lint'e geçmez (Sıralama isteği)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodu Çek
+        uses: actions/checkout@v4
+      - name: Python Kurulumu
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Linting (Code Quality)
+        run: |
+          pip install flake8
+          # Hata varsa pipeline durur (Stop the Line)
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
-      # Part 1: Automated Unit Testing
-      # Testler başarısız olursa build BURADA DURUR
-      - name: Unit Tests
-        run: pytest -q
-
-  # --- BÖLÜM 2: BUILD STAGE (Paketleme) ---
-  build_stage:
-    needs: commit_stage  # Commit stage geçmezse burası çalışmaz!
+  # --- 4. PACKAGE STAGE ---
+  package_stage:
+    needs: lint_stage # Lint geçmeden paketleme yapılmaz
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
     steps:
       - name: Kodu Çek
         uses: actions/checkout@v4
-
-      - name: GitHub Container Registry'e Giriş Yap
+      - name: Registry Giriş
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Part 2: Build Script & Build Once Principle
-      # Image bir kere oluşturulur ve kaydedilir.
-      - name: Docker Build ve Push
+      - name: Docker Build & Push
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -72,40 +89,34 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-  # --- BÖLÜM 3: SMOKE TEST STAGE (Deployment Gate) ---
+  # --- 5. SMOKE TEST STAGE ---
   smoke_test_stage:
-    needs: build_stage
+    needs: package_stage # Paketleme bitmeden test yapılmaz
     runs-on: ubuntu-latest
     permissions:
       packages: read
-
     steps:
-      - name: GitHub Container Registry'e Giriş Yap
+      - name: Registry Giriş
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: İmajı Çek (PULL)
+      - name: İmajı Çek
         run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-      # Part 2: Smoke Test (Deployment Test)
-      # Servisi ayağa kaldırıp cevap veriyor mu diye bakıyoruz.
-      - name: Smoke Test Başlat
+      - name: Container Başlat ve Test Et
         run: |
-          # Container'ı başlat
           docker run -d --name api_smoke -p 8000:8000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          
-          echo "Servisin açılması bekleniyor..."
+          echo "Servis bekleniyor..."
           sleep 10
-          
-          # Logları göster (Hata ayıklama için)
           docker logs api_smoke
           
-          # Health Check (Ödevdeki kritik test)
-          echo "Sağlık kontrolü yapılıyor..."
+          # Health Check
           curl --fail http://127.0.0.1:8000/health || exit 1
           
-          # Temizlik
+          # Prediction Check
+          curl -X POST "http://127.0.0.1:8000/predict" \
+               -H "Content-Type: application/json" \
+               -d '{"Student_ID": "TEST", "Age": 25, "Progress_Percentage": 50, "Quiz_Score_Avg": 80}' || exit 1
+          
           docker rm -f api_smoke
