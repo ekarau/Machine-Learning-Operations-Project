@@ -8,25 +8,28 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # Reponun adını küçük harflerle yazdığından emin ol
   IMAGE_NAME: ekarau/machine-learning-operations-project
+  PYTHONPATH: ${{ github.workspace }}
 
 jobs:
-  # --- 1. BUILD STAGE ---
+# --------------------------------------------------
+# 1. BUILD STAGE
+# --------------------------------------------------
   build_stage:
     runs-on: ubuntu-latest
     steps:
-      - name: Kodu Çek
+      - name: Checkout
         uses: actions/checkout@v4
-      - name: Python Kurulumu
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Bağımlılıkları Kontrol Et
+          python-version: "3.11"
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          echo "Build (Dependency Check) Successful"
+          pip install -r requirements.txt
 
   # --- 2. TEST STAGE (Unit & Component) ---
   # Bu aşama hem Unit Testleri (Feature Engineering) hem de Component Testleri (API Mock) çalıştırır.
@@ -35,15 +38,15 @@ jobs:
     needs: build_stage
     runs-on: ubuntu-latest
     steps:
-      - name: Kodu Çek
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Python Kurulumu
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      
-      - name: Testleri Çalıştır
+          python-version: "3.11"
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           # 1. Proje gereksinimlerini yükle
@@ -63,13 +66,15 @@ jobs:
     needs: test_stage
     runs-on: ubuntu-latest
     steps:
-      - name: Kodu Çek
+      - name: Checkout
         uses: actions/checkout@v4
-      - name: Python Kurulumu
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Linting
+          python-version: "3.11"
+
+      - name: Run flake8
         run: |
           pip install flake8
           # Syntax hataları ve undefined name hatalarını yakala
@@ -77,7 +82,9 @@ jobs:
           # Karmaşıklık (complexity) ve satır uzunluğu kontrolü
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
-  # --- 4. PACKAGE STAGE ---
+# --------------------------------------------------
+# 4. PACKAGE STAGE
+# --------------------------------------------------
   package_stage:
     needs: lint_stage
     runs-on: ubuntu-latest
@@ -85,15 +92,17 @@ jobs:
       contents: read
       packages: write
     steps:
-      - name: Kodu Çek
+      - name: Checkout
         uses: actions/checkout@v4
-      - name: Registry Giriş
+
+      - name: Login to registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Docker Build & Push
+
+      - name: Build & push image
         uses: docker/build-push-action@v5
         with:
           context: .
