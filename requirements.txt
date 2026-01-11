@@ -1,5 +1,16 @@
-pandas==2.1.4
-numpy==1.26.3
-scikit-learn==1.3.2
-pytest==7.4.4
-apache-airflow-providers-docker==3.9.0 # If apache-airflow is used
+pandas
+numpy
+scikit-learn
+joblib
+
+fastapi
+uvicorn
+pydantic
+
+pytest
+httpx
+
+apache-airflow-providers-docker
+prometheus_client
+mlflow
+xgboost
