@@ -28,7 +28,7 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           echo "Build (Dependency Check) Successful"
 
-# --- 2. UNIT TEST STAGE (PATH FIX) ---
+# --- 2. UNIT TEST STAGE (KESİN ÇÖZÜM: GITHUB_WORKSPACE) ---
   unit_test_stage:
     needs: build_stage
     runs-on: ubuntu-latest
@@ -49,9 +49,9 @@ jobs:
 
       - name: Testleri Çalıştır
         run: |
-          # KRİTİK DÜZELTME: Şu anki dizini (.) PYTHONPATH'e ekliyoruz.
-          # Böylece 'from src.xxx import yyy' satırları hatasız çalışır.
-          export PYTHONPATH=$PYTHONPATH:.
+          # KRİTİK DÜZELTME: PYTHONPATH'e tam proje yolunu ($GITHUB_WORKSPACE) ekliyoruz.
+          # Bu, Python'un 'src' klasörünü %100 bulmasını sağlar.
+          export PYTHONPATH=$GITHUB_WORKSPACE
           
           python -m pytest tests/test_transformers.py \
                            tests/test_feature_engineering.py \
@@ -138,5 +138,6 @@ jobs:
           pip install pytest requests
           # Docker Smoke testini çalıştır
           pytest tests/test_docker_smoke.py
+
 
 
