@@ -28,7 +28,7 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           echo "Build (Dependency Check) Successful"
 
-# --- 2. UNIT TEST STAGE ---
+# --- 2. UNIT TEST STAGE (PATH FIX) ---
   unit_test_stage:
     needs: build_stage
     runs-on: ubuntu-latest
@@ -41,18 +41,18 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Bağımlılıkları ve Test Araçlarını Yükle
+      - name: Bağımlılıkları Yükle
         run: |
           python -m pip install --upgrade pip
-          # Tüm proje bağımlılıklarını yükle (Import hatalarını önlemek için)
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # Eksik kalma ihtimaline karşı kritik kütüphaneleri ve test araçlarını ekle
           pip install pytest httpx pandas scikit-learn numpy joblib fastapi pydantic prometheus-client requests
 
       - name: Testleri Çalıştır
         run: |
-          # python -m pytest kullanarak sys.path sorununu çözüyoruz.
-          # Sadece çalışmasını istediğimiz Unit Test dosyalarını açıkça belirtiyoruz.
+          # KRİTİK DÜZELTME: Şu anki dizini (.) PYTHONPATH'e ekliyoruz.
+          # Böylece 'from src.xxx import yyy' satırları hatasız çalışır.
+          export PYTHONPATH=$PYTHONPATH:.
+          
           python -m pytest tests/test_transformers.py \
                            tests/test_feature_engineering.py \
                            tests/test_validation.py \
@@ -138,4 +138,5 @@ jobs:
           pip install pytest requests
           # Docker Smoke testini çalıştır
           pytest tests/test_docker_smoke.py
+
 
