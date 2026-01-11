@@ -8,76 +8,81 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # Reponun adını küçük harflerle yazdığından emin ol
   IMAGE_NAME: ekarau/machine-learning-operations-project
+  PYTHONPATH: ${{ github.workspace }}
 
 jobs:
-  # --- 1. BUILD STAGE ---
+# --------------------------------------------------
+# 1. BUILD STAGE
+# --------------------------------------------------
   build_stage:
     runs-on: ubuntu-latest
     steps:
-      - name: Kodu Çek
+      - name: Checkout
         uses: actions/checkout@v4
-      - name: Python Kurulumu
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Bağımlılıkları Kontrol Et
+          python-version: "3.11"
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          echo "Build (Dependency Check) Successful"
+          pip install -r requirements.txt
 
-# --- 2. UNIT TEST STAGE (KESİN ÇÖZÜM: GITHUB_WORKSPACE) ---
+# --------------------------------------------------
+# 2. UNIT TEST STAGE
+# --------------------------------------------------
   unit_test_stage:
     needs: build_stage
     runs-on: ubuntu-latest
     steps:
-      - name: Kodu Çek
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Python Kurulumu
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      
-      - name: Bağımlılıkları Yükle
+          python-version: "3.11"
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest httpx pandas scikit-learn numpy joblib fastapi pydantic prometheus-client requests
+          pip install -r requirements.txt
+          pip install pytest
 
-      - name: Testleri Çalıştır
+      - name: Run unit tests
         run: |
-          # KRİTİK DÜZELTME: PYTHONPATH'e tam proje yolunu ($GITHUB_WORKSPACE) ekliyoruz.
-          # Bu, Python'un 'src' klasörünü %100 bulmasını sağlar.
-          export PYTHONPATH=$GITHUB_WORKSPACE
-          
-          python -m pytest tests/test_transformers.py \
-                           tests/test_feature_engineering.py \
-                           tests/test_validation.py \
-                           tests/test_app.py \
-                           tests/test_fallback.py \
-                           tests/test_compliance_requirements.py
+          pytest tests/ -v
 
-  # --- 3. LINT STAGE ---
+# --------------------------------------------------
+# 3. LINT STAGE
+# --------------------------------------------------
   lint_stage:
     needs: unit_test_stage
     runs-on: ubuntu-latest
     steps:
-      - name: Kodu Çek
+      - name: Checkout
         uses: actions/checkout@v4
-      - name: Python Kurulumu
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Linting
+          python-version: "3.11"
+
+      - name: Run flake8
         run: |
           pip install flake8
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          flake8 src tests \
+            --count \
+            --select=E9,F63,F7,F82 \
+            --show-source \
+            --statistics
 
-  # --- 4. PACKAGE STAGE ---
+# --------------------------------------------------
+# 4. PACKAGE STAGE
+# --------------------------------------------------
   package_stage:
     needs: lint_stage
     runs-on: ubuntu-latest
@@ -85,15 +90,17 @@ jobs:
       contents: read
       packages: write
     steps:
-      - name: Kodu Çek
+      - name: Checkout
         uses: actions/checkout@v4
-      - name: Registry Giriş
+
+      - name: Login to registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Docker Build & Push
+
+      - name: Build & push image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -102,42 +109,36 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-# --- 5. SMOKE TEST STAGE (PYTHON VERSİYONU) ---
+# --------------------------------------------------
+# 5. SMOKE TEST STAGE
+# --------------------------------------------------
   smoke_test_stage:
     needs: package_stage
     runs-on: ubuntu-latest
     permissions:
       packages: read
     steps:
-      - name: Kodu Çek
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Python Kurulumu
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Registry Giriş
+      - name: Login to registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: İmajı Hazırla (Tagging)
+      - name: Pull and tag image
         run: |
-          # 1. Registry'deki imajı çek
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          
-          # 2. Python test dosyasındaki isme ("course-api") uygun şekilde etiketle
-          # Test dosyan DOCKER_IMAGE = "course-api" olarak tanımlı olduğu için bu şart.
           docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} course-api
 
-      - name: Python Testlerini Çalıştır
+      - name: Run smoke tests
         run: |
           pip install pytest requests
-          # Docker Smoke testini çalıştır
-          pytest tests/test_docker_smoke.py
-
-
-
+          pytest tests/test_docker_smoke.py -v
