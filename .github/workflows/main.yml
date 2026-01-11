@@ -59,7 +59,8 @@ jobs:
           # 3. Test Komutu
           # "not smoke" ifadesi, dosya veya fonksiyon isminde "smoke" geçenleri atlar.
           # Böylece Docker gerektiren testler bu aşamada çalışıp hata vermez.
-          pytest tests/ -k "not smoke" -v
+          # PYTHONPATH=. komutu Python'a mevcut dizini (root) modül yolu olarak ekler
+          PYTHONPATH=. pytest tests/ -k "not smoke" -v
 
   # --- 3. LINT STAGE ---
   lint_stage:
@@ -153,3 +154,4 @@ jobs:
           
           # 3. Temizlik
           docker rm -f api_smoke
+
