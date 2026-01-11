@@ -97,34 +97,39 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-  # --- 5. SMOKE TEST STAGE ---
+# --- 5. SMOKE TEST STAGE (PYTHON VERSİYONU) ---
   smoke_test_stage:
     needs: package_stage
     runs-on: ubuntu-latest
     permissions:
       packages: read
     steps:
+      - name: Kodu Çek
+        uses: actions/checkout@v4
+      
+      - name: Python Kurulumu
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Registry Giriş
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: İmajı Çek
-        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-      - name: Smoke Test
+
+      - name: İmajı Hazırla (Tagging)
         run: |
-          docker run -d --name api_smoke -p 8000:8000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          echo "Servis bekleniyor..."
-          sleep 10
-          docker logs api_smoke
+          # 1. Registry'deki imajı çek
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           
-          # Health Check
-          curl --fail http://127.0.0.1:8000/health || exit 1
-          
-          # Prediction Check
-          curl -X POST "http://127.0.0.1:8000/predict" \
-               -H "Content-Type: application/json" \
-               -d '{"Student_ID": "TEST", "Age": 25, "Progress_Percentage": 50, "Quiz_Score_Avg": 80}' || exit 1
-          
-          docker rm -f api_smoke
+          # 2. Python test dosyasındaki isme ("course-api") uygun şekilde etiketle
+          # Test dosyan DOCKER_IMAGE = "course-api" olarak tanımlı olduğu için bu şart.
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} course-api
+
+      - name: Python Testlerini Çalıştır
+        run: |
+          pip install pytest requests
+          # Docker Smoke testini çalıştır
+          pytest tests/test_docker_smoke.py
